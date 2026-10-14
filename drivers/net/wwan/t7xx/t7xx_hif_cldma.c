@@ -24,6 +24,7 @@
 #include <linux/dma-mapping.h>
 #include <linux/dma-direction.h>
 #include <linux/gfp.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/io-64-nonatomic-lo-hi.h>
 #include <linux/iopoll.h>
@@ -545,7 +546,7 @@ static void t7xx_cldma_disable_irq(struct cldma_ctrl *md_ctrl)
 
 static void t7xx_cldma_irq_work_cb(struct cldma_ctrl *md_ctrl)
 {
-	unsigned long l2_tx_int_msk, l2_rx_int_msk, l2_tx_int, l2_rx_int, val;
+	unsigned long l2_tx_int_msk, l2_rx_int_msk, l2_tx_int, l2_rx_int, val, flags;
 	struct t7xx_cldma_hw *hw_info = &md_ctrl->hw_info;
 	int i;
 
@@ -570,6 +571,13 @@ static void t7xx_cldma_irq_work_cb(struct cldma_ctrl *md_ctrl)
 		if (l2_tx_int & (TXRX_STATUS_BITMASK | EMPTY_STATUS_BITMASK)) {
 			for_each_set_bit(i, &l2_tx_int, L2_INT_BIT_COUNT) {
 				if (i < CLDMA_TXQ_NUM) {
+					spin_lock_irqsave(&md_ctrl->cldma_lock, flags);
+					if (!(md_ctrl->txq_active & BIT(i))) {
+						spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
+						continue;
+					}
+					spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
+
 					pm_runtime_get(md_ctrl->dev);
 					t7xx_cldma_hw_irq_dis_eq(hw_info, i, MTK_TX);
 					t7xx_cldma_hw_irq_dis_txrx(hw_info, i, MTK_TX);
@@ -595,6 +603,13 @@ static void t7xx_cldma_irq_work_cb(struct cldma_ctrl *md_ctrl)
 		if (l2_rx_int & (TXRX_STATUS_BITMASK | EMPTY_STATUS_BITMASK)) {
 			l2_rx_int |= l2_rx_int >> CLDMA_RXQ_NUM;
 			for_each_set_bit(i, &l2_rx_int, CLDMA_RXQ_NUM) {
+				spin_lock_irqsave(&md_ctrl->cldma_lock, flags);
+				if (!(md_ctrl->rxq_active & BIT(i))) {
+					spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
+					continue;
+				}
+				spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
+
 				pm_runtime_get(md_ctrl->dev);
 				t7xx_cldma_hw_irq_dis_eq(hw_info, i, MTK_RX);
 				t7xx_cldma_hw_irq_dis_txrx(hw_info, i, MTK_RX);
@@ -633,12 +648,17 @@ static bool t7xx_cldma_qs_are_active(struct cldma_ctrl *md_ctrl)
 int t7xx_cldma_stop(struct cldma_ctrl *md_ctrl)
 {
 	struct t7xx_cldma_hw *hw_info = &md_ctrl->hw_info;
+	struct pci_dev *pdev = to_pci_dev(md_ctrl->dev);
+	unsigned long flags;
 	bool active;
-	int i, ret;
+	int i, ret, irq;
 
+	spin_lock_irqsave(&md_ctrl->cldma_lock, flags);
 	md_ctrl->rxq_active = 0;
-	t7xx_cldma_hw_stop_all_qs(hw_info, MTK_RX);
 	md_ctrl->txq_active = 0;
+	spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
+
+	t7xx_cldma_hw_stop_all_qs(hw_info, MTK_RX);
 	t7xx_cldma_hw_stop_all_qs(hw_info, MTK_TX);
 	md_ctrl->txq_started = 0;
 	t7xx_cldma_disable_irq(md_ctrl);
@@ -648,6 +668,10 @@ int t7xx_cldma_stop(struct cldma_ctrl *md_ctrl)
 	t7xx_cldma_hw_rx_done(hw_info, CLDMA_L2RISAR0_ALL_INT_MASK);
 
 	if (md_ctrl->is_late_init) {
+		irq = pci_irq_vector(pdev, hw_info->phy_interrupt_id);
+		if (irq >= 0)
+			synchronize_irq(irq);
+
 		for (i = 0; i < CLDMA_TXQ_NUM; i++)
 			flush_work(&md_ctrl->txq[i].cldma_work);
 
