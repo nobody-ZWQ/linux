@@ -378,12 +378,13 @@ static int t7xx_txq_burst_send_skb(struct dpmaif_tx_queue *txq)
 	for (i = 0; i < DPMAIF_SKB_TX_BURST_CNT; i++) {
 		struct sk_buff *skb;
 
-		skb = skb_peek(&txq->tx_skb_head);
+		skb = skb_dequeue(&txq->tx_skb_head);
 		if (!skb)
 			break;
 
 		send_drb_cnt = t7xx_skb_drb_cnt(skb);
 		if (drb_remain_cnt < send_drb_cnt) {
+			skb_queue_head(&txq->tx_skb_head, skb);
 			drb_remain_cnt = t7xx_txq_drb_wr_available(txq);
 			continue;
 		}
@@ -394,11 +395,11 @@ static int t7xx_txq_burst_send_skb(struct dpmaif_tx_queue *txq)
 		if (ret < 0) {
 			dev_err(txq->dpmaif_ctrl->dev,
 				"Failed to add skb to device's ring: %d\n", ret);
+			skb_queue_head(&txq->tx_skb_head, skb);
 			break;
 		}
 
 		drb_cnt += send_drb_cnt;
-		skb_unlink(skb, &txq->tx_skb_head);
 	}
 
 	if (drb_cnt > 0)
