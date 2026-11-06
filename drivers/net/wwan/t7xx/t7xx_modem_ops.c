@@ -115,6 +115,7 @@ int t7xx_pci_mhccif_isr(struct t7xx_pci_dev *t7xx_dev)
 		if ((md->exp_id & D2H_INT_ASYNC_MD_HK) && !(mask & D2H_INT_ASYNC_MD_HK)) {
 			md->exp_id &= ~D2H_INT_ASYNC_MD_HK;
 			queue_work(md->handshake_wq, &md->handshake_work);
+			t7xx_mhccif_mask_set(t7xx_dev, D2H_INT_ASYNC_MD_HK);
 		}
 	}
 	spin_unlock_bh(&md->exp_lock);
@@ -583,6 +584,7 @@ static void t7xx_md_hk_wq(struct work_struct *work)
 
 	/* Clear the HS2 EXIT event appended in core_reset() */
 	t7xx_fsm_clr_event(ctl, FSM_EVENT_MD_HS2_EXIT);
+	t7xx_cldma_stop(md->md_ctrl[CLDMA_ID_MD]);
 	t7xx_cldma_switch_cfg(md->md_ctrl[CLDMA_ID_MD], CLDMA_SHARED_Q_CFG);
 	t7xx_cldma_start(md->md_ctrl[CLDMA_ID_MD]);
 	t7xx_fsm_broadcast_state(ctl, MD_STATE_WAITING_FOR_HS2);
