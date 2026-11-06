@@ -493,8 +493,10 @@ static int t7xx_core_reset(struct t7xx_modem *md)
 {
 	struct device *dev = &md->t7xx_dev->pdev->dev;
 	struct t7xx_fsm_ctl *ctl = md->fsm_ctl;
+	int ret;
 
 	md->core_md.ready = false;
+	md->core_ap.ready = false;
 
 	if (!ctl) {
 		dev_err(dev, "FSM is not initialized\n");
@@ -502,13 +504,19 @@ static int t7xx_core_reset(struct t7xx_modem *md)
 	}
 
 	if (md->core_md.handshake_ongoing) {
-		int ret = t7xx_fsm_append_event(ctl, FSM_EVENT_MD_HS2_EXIT, NULL, 0);
+		ret = t7xx_fsm_append_event(ctl, FSM_EVENT_MD_HS2_EXIT, NULL, 0);
+		if (ret)
+			return ret;
+	}
 
+	if (md->core_ap.handshake_ongoing) {
+		ret = t7xx_fsm_append_event(ctl, FSM_EVENT_AP_HS2_EXIT, NULL, 0);
 		if (ret)
 			return ret;
 	}
 
 	md->core_md.handshake_ongoing = false;
+	md->core_ap.handshake_ongoing = false;
 	return 0;
 }
 
@@ -722,15 +730,24 @@ static struct t7xx_modem *t7xx_md_alloc(struct t7xx_pci_dev *t7xx_dev)
 int t7xx_md_reset(struct t7xx_pci_dev *t7xx_dev)
 {
 	struct t7xx_modem *md = t7xx_dev->md;
+	int ret;
 
 	md->md_init_finish = false;
 	md->exp_id = 0;
 	t7xx_fsm_reset(md);
+
+	ret = t7xx_core_reset(md);
+	if (ret)
+		return ret;
+
+	cancel_work_sync(&md->handshake_work);
+	cancel_work_sync(&md->ap_handshake_work);
+
 	t7xx_cldma_reset(md->md_ctrl[CLDMA_ID_MD]);
 	t7xx_cldma_reset(md->md_ctrl[CLDMA_ID_AP]);
 	t7xx_port_proxy_reset(md->port_prox);
 	md->md_init_finish = true;
-	return t7xx_core_reset(md);
+	return 0;
 }
 
 /**
