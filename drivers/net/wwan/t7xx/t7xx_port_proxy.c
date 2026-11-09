@@ -398,7 +398,7 @@ int t7xx_port_proxy_recv_skb_from_dedicated_queue(struct cldma_queue *queue, str
 	port = &port_prox->ports[0];
 	if (WARN_ON_ONCE(port->port_conf->rxq_index != queue->index)) {
 		dev_kfree_skb_any(skb);
-		return -EINVAL;
+		return 0;
 	}
 
 	port_conf = port->port_conf;
@@ -406,6 +406,7 @@ int t7xx_port_proxy_recv_skb_from_dedicated_queue(struct cldma_queue *queue, str
 	if (ret < 0 && ret != -ENOBUFS) {
 		dev_err(port->dev, "drop on RX ch %d, %d\n", port_conf->rx_ch, ret);
 		dev_kfree_skb_any(skb);
+		return 0;
 	}
 
 	return ret;
