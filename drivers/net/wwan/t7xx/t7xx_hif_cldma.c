@@ -942,6 +942,11 @@ int t7xx_cldma_send_skb(struct cldma_ctrl *md_ctrl, int qno, struct sk_buff *skb
 	spin_unlock_irqrestore(&md_ctrl->cldma_lock, flags);
 
 	do {
+		if (!t7xx_pci_sleep_disable_complete(md_ctrl->t7xx_dev)) {
+			ret = -ETIMEDOUT;
+			break;
+		}
+
 		spin_lock_irqsave(&queue->ring_lock, flags);
 		tx_req = queue->tx_next;
 		if (queue->budget > 0 && !tx_req->skb) {
@@ -951,11 +956,6 @@ int t7xx_cldma_send_skb(struct cldma_ctrl *md_ctrl, int qno, struct sk_buff *skb
 			t7xx_cldma_gpd_handle_tx_request(queue, tx_req, skb);
 			queue->tx_next = list_next_entry_circular(tx_req, gpd_ring, entry);
 			spin_unlock_irqrestore(&queue->ring_lock, flags);
-
-			if (!t7xx_pci_sleep_disable_complete(md_ctrl->t7xx_dev)) {
-				ret = -ETIMEDOUT;
-				break;
-			}
 
 			/* Protect the access to the modem for queues operations (resume/start)
 			 * which access shared locations by all the queues.
@@ -968,11 +968,6 @@ int t7xx_cldma_send_skb(struct cldma_ctrl *md_ctrl, int qno, struct sk_buff *skb
 			break;
 		}
 		spin_unlock_irqrestore(&queue->ring_lock, flags);
-
-		if (!t7xx_pci_sleep_disable_complete(md_ctrl->t7xx_dev)) {
-			ret = -ETIMEDOUT;
-			break;
-		}
 
 		if (!t7xx_cldma_hw_queue_status(&md_ctrl->hw_info, qno, MTK_TX)) {
 			spin_lock_irqsave(&md_ctrl->cldma_lock, flags);
