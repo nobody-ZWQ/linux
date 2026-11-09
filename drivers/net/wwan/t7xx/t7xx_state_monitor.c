@@ -417,6 +417,7 @@ static void fsm_routine_start(struct t7xx_fsm_ctl *ctl, struct t7xx_fsm_command 
 				break;
 			t7xx_cldma_hif_hw_init(md->md_ctrl[CLDMA_ID_AP]);
 			t7xx_cldma_hif_hw_init(md->md_ctrl[CLDMA_ID_MD]);
+			t7xx_cldma_stop(md->md_ctrl[CLDMA_ID_AP]);
 			t7xx_port_proxy_set_cfg(md, PORT_CFG_ID_NORMAL);
 			ret = fsm_routine_starting(ctl);
 			break;
